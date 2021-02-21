@@ -25,8 +25,8 @@ def main(args, init_distributed=False):
         'Must specify batch size either with --max-tokens or --max-sentences'
 
     # Initialize CUDA and distributed training
-    if torch.cuda.is_available() and not args.cpu:
-        torch.cuda.set_device(args.device_id)
+    #if torch.cuda.is_available() and not args.cpu:
+    #    torch.cuda.set_device(args.device_id)
     torch.manual_seed(args.seed)
     if init_distributed:
         args.distributed_rank = distributed_utils.distributed_init(args)
@@ -349,29 +349,41 @@ def cli_main():
 
     if args.distributed_init_method is not None:
         # distributed training
-        if torch.cuda.device_count() > 1 and not args.distributed_no_spawn:
+        #if torch.cuda.device_count() > 1 and not args.distributed_no_spawn:
+        if not args.distributed_no_spawn:
             start_rank = args.distributed_rank
             args.distributed_rank = None  # assign automatically
             torch.multiprocessing.spawn(
                 fn=distributed_main,
                 args=(args, start_rank),
-                nprocs=torch.cuda.device_count(),
+                #nprocs=torch.cuda.device_count(),
+                nprocs= 8, #Use all TPU cores
             )
         else:
             distributed_main(args.device_id, args)
     elif args.distributed_world_size > 1:
         # fallback for single node with multiple GPUs
-        assert args.distributed_world_size <= torch.cuda.device_count()
+        #assert args.distributed_world_size <= torch.cuda.device_count()
+        import torch_xla.distributed.xla_multiprocessing as xmp
+        torch.multiprocessing.set_sharing_strategy("file_system")
         port = random.randint(10000, 20000)
         args.distributed_init_method = 'tcp://localhost:{port}'.format(port=port)
         args.distributed_rank = None  # set based on device id
         if max(args.update_freq) > 1 and args.ddp_backend != 'no_c10d':
             print('| NOTE: you may get better performance with: --ddp-backend=no_c10d')
-        torch.multiprocessing.spawn(
+
+        xmp.spawn(
             fn=distributed_main,
-            args=(args, ),
-            nprocs=args.distributed_world_size,
+            args=(main, args, kwargs),
+            nprocs=8,  # use all 8 TPU cores
         )
+ 
+        #torch.multiprocessing.spawn(
+        #    fn=distributed_main,
+        #    args=(args, ),
+        #    nprocs=args.distributed_world_size,
+        #)
+
     else:
         # single GPU training
         main(args)
