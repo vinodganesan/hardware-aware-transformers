@@ -345,6 +345,15 @@ class FairseqEncoderDecoderModel(BaseFairseqModel):
         return self.decoder.max_positions()
 
 
+class SuperFairseqEncoderDecoderModel(FairseqEncoderDecoderModel):
+    def __init__(self, encoder, decoder):
+        super().__init__(encoder, decoder)
+
+    def set_sample_config(self, config):
+        self.encoder.set_sample_config(config)
+        self.decoder.set_sample_config(config)
+
+
 class FairseqModel(FairseqEncoderDecoderModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
