@@ -12,6 +12,7 @@ from .conv_tbc import ConvTBC
 from .cross_entropy import cross_entropy
 from .downsampled_multihead_attention import DownsampledMultiHeadAttention
 from .dynamic_convolution import DynamicConv, DynamicConv1dTBC
+from .multihead_attention_super import MultiheadAttentionSuper
 from .dynamic_crf_layer import DynamicCRF
 from .fairseq_dropout import FairseqDropout
 from .fp32_group_norm import Fp32GroupNorm
@@ -36,6 +37,11 @@ from .unfold import unfold1d
 from .transformer_layer import TransformerDecoderLayer, TransformerEncoderLayer
 from .vggblock import VGGBlock
 
+from .embedding_super import EmbeddingSuper
+from .linear_super import LinearSuper
+from .layer_norm import LayerNormSuper
+
+
 __all__ = [
     "AdaptiveInput",
     "AdaptiveSoftmax",
@@ -52,6 +58,7 @@ __all__ = [
     "Fp32LayerNorm",
     "gelu",
     "gelu_accurate",
+    "MultiheadAttentionSuper",
     "GradMultiply",
     "GumbelVectorQuantizer",
     "KmeansVectorQuantizer",
@@ -73,4 +80,7 @@ __all__ = [
     "TransposeLast",
     "VGGBlock",
     "unfold1d",
+    "EmbeddingSuper",
+    "LinearSuper",
+    "LayerNormSuper"
 ]
