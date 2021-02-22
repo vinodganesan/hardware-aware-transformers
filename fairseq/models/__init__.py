@@ -20,6 +20,7 @@ from .fairseq_incremental_decoder import FairseqIncrementalDecoder
 from .fairseq_model import (
     BaseFairseqModel,
     FairseqEncoderDecoderModel,
+    SuperFairseqEncoderDecoderModel,
     FairseqEncoderModel,
     FairseqLanguageModel,
     FairseqModel,
@@ -42,6 +43,7 @@ __all__ = [
     "FairseqDecoder",
     "FairseqEncoder",
     "FairseqEncoderDecoderModel",
+    "SuperFairseqEncoderDecoderModel",
     "FairseqEncoderModel",
     "FairseqIncrementalDecoder",
     "FairseqLanguageModel",
