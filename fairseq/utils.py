@@ -14,12 +14,12 @@ import tempfile
 import warnings
 from itertools import accumulate
 from typing import Callable, Dict, List, Optional
-
+import random
 import torch
 import torch.nn.functional as F
 from fairseq.modules.multihead_attention import MultiheadAttention
 from torch import Tensor
-
+import collections
 
 try:
     from amp_C import multi_tensor_l2norm
@@ -39,6 +39,13 @@ logger = logging.getLogger(__name__)
 
 MANIFOLD_PATH_SEP = "|"
 
+def handle_save_path(args):
+    if args.save_dir is None:
+        dirname = args.configs[len('configs' + os.sep):-len('.yml')]
+        args.save_dir = os.path.join('checkpoints', dirname)
+    if args.tensorboard_logdir is None or args.tensorboard_logdir == '':
+        os.makedirs(args.save_dir, exist_ok=True)
+        args.tensorboard_logdir = os.path.join(args.save_dir, 'tensorboard')
 
 class FileContentsAction(argparse.Action):
     def __init__(self, option_strings, dest, nargs=None, **kwargs):
@@ -738,6 +745,144 @@ def eval_bool(x, default=False):
         return bool(eval(x))
     except TypeError:
         return default
+def sample_configs(choices, reset_rand_seed, rand_seed=0, super_decoder_num_layer=6):
+    if reset_rand_seed:
+        random.seed(rand_seed)
+    config = {
+        'encoder': {},
+        'decoder': {}
+    }
+
+    direct_select = ['embed_dim',
+                    'layer_num']
+    for v in direct_select:
+        for part in ['encoder', 'decoder']:
+            config[part][part+'_'+v] = random.choice(choices[part][part+'_'+v])
+
+    # encoder
+    encoder_ffn_embed_dim = []
+    encoder_self_attention_heads = []
+    for _ in range(config['encoder']['encoder_layer_num']):
+        encoder_ffn_embed_dim.append(random.choice(choices['encoder']['encoder_ffn_embed_dim']))
+        encoder_self_attention_heads.append(random.choice(choices['encoder']['encoder_self_attention_heads']))
+
+    config['encoder']['encoder_ffn_embed_dim'] = encoder_ffn_embed_dim
+    config['encoder']['encoder_self_attention_heads'] = encoder_self_attention_heads
+
+
+    decoder_ffn_embed_dim = []
+    decoder_self_attention_heads = []
+    decoder_ende_attention_heads = []
+    for _ in range(config['decoder']['decoder_layer_num']):
+        decoder_ffn_embed_dim.append(random.choice(choices['decoder']['decoder_ffn_embed_dim']))
+        decoder_self_attention_heads.append(random.choice(choices['decoder']['decoder_self_attention_heads']))
+        decoder_ende_attention_heads.append(random.choice(choices['decoder']['decoder_ende_attention_heads']))
+    decoder_arbitrary_ende_attn_all = []
+
+    # every decoder layer need arbitrary_ende_attn setting, even if the layer will not be used
+    for _ in range(super_decoder_num_layer):
+        decoder_arbitrary_ende_attn_all.append(random.choice(choices['decoder']['decoder_arbitrary_ende_attn']))
+
+    config['decoder']['decoder_ffn_embed_dim'] = decoder_ffn_embed_dim
+    config['decoder']['decoder_self_attention_heads'] = decoder_self_attention_heads
+    config['decoder']['decoder_ende_attention_heads'] = decoder_ende_attention_heads
+    config['decoder']['decoder_arbitrary_ende_attn'] = decoder_arbitrary_ende_attn_all
+
+
+
+    return config
+
+
+def get_subtransformer_config(args):
+
+    config = {
+        'encoder': {
+            'encoder_embed_dim': args.encoder_embed_dim_subtransformer,
+            'encoder_layer_num': args.encoder_layer_num_subtransformer,
+            'encoder_ffn_embed_dim': args.encoder_ffn_embed_dim_all_subtransformer,
+            'encoder_self_attention_heads': args.encoder_self_attention_heads_all_subtransformer,
+        },
+        'decoder': {
+            'decoder_embed_dim': args.decoder_embed_dim_subtransformer,
+            'decoder_layer_num': args.decoder_layer_num_subtransformer,
+            'decoder_ffn_embed_dim': args.decoder_ffn_embed_dim_all_subtransformer,
+            'decoder_self_attention_heads': args.decoder_self_attention_heads_all_subtransformer,
+            'decoder_ende_attention_heads': args.decoder_ende_attention_heads_all_subtransformer,
+            'decoder_arbitrary_ende_attn': args.decoder_arbitrary_ende_attn_all_subtransformer
+        }
+    }
+
+    return config
+
+
+
+def get_all_choices(args):
+
+    all_choices = {
+        'encoder': {
+            'encoder_embed_dim': args.encoder_embed_choice,
+            'encoder_layer_num': args.encoder_layer_num_choice,
+            'encoder_ffn_embed_dim': args.encoder_ffn_embed_dim_choice,
+            'encoder_self_attention_heads': args.encoder_self_attention_heads_choice,
+
+        },
+        'decoder': {
+            'decoder_embed_dim': args.decoder_embed_choice,
+            'decoder_layer_num': args.decoder_layer_num_choice,
+            'decoder_ffn_embed_dim': args.decoder_ffn_embed_dim_choice,
+            'decoder_self_attention_heads': args.decoder_self_attention_heads_choice,
+            'decoder_ende_attention_heads': args.decoder_ende_attention_heads_choice,
+            'decoder_arbitrary_ende_attn': args.decoder_arbitrary_ende_attn_choice
+        }
+    }
+
+    return all_choices
+
+def get_feature_info():
+    return ['encoder_embed_dim', 'encoder_layer_num', 'encoder_ffn_embed_dim_avg', 'encoder_self_attention_heads_avg', 'decoder_embed_dim', 'decoder_layer_num', 'decoder_ffn_embed_dim_avg', 'decoder_self_attention_heads_avg', 'decoder_ende_attention_heads_avg', 'decoder_arbitrary_ende_attn_avg']
+
+def get_config_features(config):
+
+    features = []
+
+    features.append(config['encoder']['encoder_embed_dim'])
+
+    encoder_layer_num = config['encoder']['encoder_layer_num']
+    features.append(encoder_layer_num)
+
+    encoder_ffn_embed_dim_mean = np.mean(config['encoder']['encoder_ffn_embed_dim'][:encoder_layer_num])
+    features.append(encoder_ffn_embed_dim_mean)
+
+    encoder_self_attention_heads_mean = np.mean(config['encoder']['encoder_self_attention_heads'][:encoder_layer_num])
+    features.append(encoder_self_attention_heads_mean)
+
+
+    features.append(config['decoder']['decoder_embed_dim'])
+
+    decoder_layer_num = config['decoder']['decoder_layer_num']
+    features.append(decoder_layer_num)
+
+    decoder_ffn_embed_dim_mean = np.mean(config['decoder']['decoder_ffn_embed_dim'][:decoder_layer_num])
+    features.append(decoder_ffn_embed_dim_mean)
+
+    decoder_self_attention_heads_mean = np.mean(config['decoder']['decoder_self_attention_heads'][:decoder_layer_num])
+    features.append(decoder_self_attention_heads_mean)
+
+    decoder_ende_attention_heads_mean = np.mean(config['decoder']['decoder_ende_attention_heads'][:decoder_layer_num])
+    features.append(decoder_ende_attention_heads_mean)
+
+    arbitrary_ende_attn_trans = []
+    for i in range(decoder_layer_num):
+        if config['decoder']['decoder_arbitrary_ende_attn'][i] == -1:
+            arbitrary_ende_attn_trans.append(1)
+        elif config['decoder']['decoder_arbitrary_ende_attn'][i] == 1:
+            arbitrary_ende_attn_trans.append(2)
+        elif config['decoder']['decoder_arbitrary_ende_attn'][i] == 2:
+            arbitrary_ende_attn_trans.append(3)
+
+    features.append(np.mean(arbitrary_ende_attn_trans))
+
+    return features
 
 def get_represent_configs(args):
     # largest Subtransformer

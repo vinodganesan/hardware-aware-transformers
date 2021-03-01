@@ -1,0 +1,6 @@
+# ninja log v5
+1	729	1614621341333814014	/home/gowtham_ramesh1/pytorch-tutorial-data/hat/hardware-aware-transformers/build/temp.linux-x86_64-3.6/fairseq/clib/libbleu/module.o	3a849b400b121980
+1	946	1614621341549831917	/home/gowtham_ramesh1/pytorch-tutorial-data/hat/hardware-aware-transformers/build/temp.linux-x86_64-3.6/fairseq/clib/libbleu/libbleu.o	4cb8eab2ffce7cec
+1	4843	1614621346526244383	/home/gowtham_ramesh1/pytorch-tutorial-data/hat/hardware-aware-transformers/build/temp.linux-x86_64-3.6/fairseq/data/data_utils_fast.o	c6de60b566f81591
+0	4574	1614621351194631362	/home/gowtham_ramesh1/pytorch-tutorial-data/hat/hardware-aware-transformers/build/temp.linux-x86_64-3.6/fairseq/data/token_block_utils_fast.o	8d8cfc1b56572b9b
+0	22784	1614621374068528045	/home/gowtham_ramesh1/pytorch-tutorial-data/hat/hardware-aware-transformers/build/temp.linux-x86_64-3.6/fairseq/clib/libnat/edit_dist.o	69c9c670860bebc6

@@ -134,13 +134,16 @@ class Trainer(object):
         self._start_time = time.time()
         self._previous_training_time = 0
         self._cumulative_training_time = None
-
+    
     def reinitialize(self):
         """Reinitialize the Trainer, typically after model params change."""
         self._lr_scheduler = None
         self._optimizer = None
         self._wrapped_criterion = None
         self._wrapped_model = None
+
+    def set_sample_config(self, config):
+        self._model.set_sample_config(config)
 
     @property
     def data_parallel_world_size(self):
@@ -521,7 +524,7 @@ class Trainer(object):
         self._dummy_batch = batch
 
     @metrics.aggregate("train")
-    def train_step(self, samples, raise_oom=False):
+    def train_step(self, samples, raise_oom=False,configs=[None]):
         """Do forward, backward and parameter update."""
         self._set_seed()
         self.model.train()
@@ -532,60 +535,63 @@ class Trainer(object):
 
         # forward and backward pass
         logging_outputs, sample_size, ooms = [], 0, 0
-        for i, sample in enumerate(samples):  # delayed update loop
-            sample, is_dummy_batch = self._prepare_sample(sample)
+        for config in configs:
+            if config is not None:
+                self.set_sample_config(config)
+            for i, sample in enumerate(samples):  # delayed update loop
+                sample, is_dummy_batch = self._prepare_sample(sample)
 
-            def maybe_no_sync():
-                """
-                Whenever *samples* contains more than one mini-batch, we
-                want to accumulate gradients locally and only call
-                all-reduce in the last backwards pass.
-                """
-                if (
-                    self.data_parallel_world_size > 1
-                    and hasattr(self.model, "no_sync")
-                    and i < len(samples) - 1
-                ):
-                    return self.model.no_sync()
-                else:
-                    return contextlib.ExitStack()  # dummy contextmanager
+                def maybe_no_sync():
+                    """
+                    Whenever *samples* contains more than one mini-batch, we
+                    want to accumulate gradients locally and only call
+                    all-reduce in the last backwards pass.
+                    """
+                    if (
+                        self.data_parallel_world_size > 1
+                        and hasattr(self.model, "no_sync")
+                        and i < len(samples) - 1
+                       ):
+                        return self.model.no_sync()
+                    else:
+                        return contextlib.ExitStack()  # dummy contextmanager
 
-            try:
-                with maybe_no_sync():
-                    # forward and backward
-                    loss, sample_size_i, logging_output = self.task.train_step(
-                        sample=sample,
-                        model=self.model,
-                        criterion=self.criterion,
-                        optimizer=self.optimizer,
-                        update_num=self.get_num_updates(),
-                        ignore_grad=is_dummy_batch,
-                    )
-                    del loss
+                try:
+                    with maybe_no_sync():
+                        # forward and backward
+                        loss, sample_size_i, logging_output = self.task.train_step(
+                            sample=sample,
+                            model=self.model,
+                            criterion=self.criterion,
+                            optimizer=self.optimizer,
+                            update_num=self.get_num_updates(),
+                            ignore_grad=is_dummy_batch,
+                        )
+                        del loss
 
-                logging_outputs.append(logging_output)
-                sample_size += sample_size_i
+                    logging_outputs.append(logging_output)
+                    sample_size += sample_size_i
 
-                # emptying the CUDA cache after the first step can
-                # reduce the chance of OOM
-                if self.cuda and self.get_num_updates() == 0:
-                    torch.cuda.empty_cache()
-            except RuntimeError as e:
-                if "out of memory" in str(e):
-                    self._log_oom(e)
-                    if raise_oom:
-                        raise e
-                    logger.warning(
-                        "attempting to recover from OOM in forward/backward pass"
-                    )
-                    ooms += 1
-                    self.zero_grad()
-                    if self.cuda:
+                    # emptying the CUDA cache after the first step can
+                    # reduce the chance of OOM
+                    if self.cuda and self.get_num_updates() == 0:
                         torch.cuda.empty_cache()
-                    if self.cfg.distributed_training.distributed_world_size == 1:
-                        return None
-                else:
-                    raise e
+                except RuntimeError as e:
+                   if "out of memory" in str(e):
+                        self._log_oom(e)
+                        if raise_oom:
+                            raise e
+                        logger.warning(
+                            "attempting to recover from OOM in forward/backward pass"
+                        )
+                        ooms += 1
+                        self.zero_grad()
+                        if self.cuda:
+                            torch.cuda.empty_cache()
+                        if self.cfg.distributed_training.distributed_world_size == 1:
+                            return None
+                   else:
+                       raise e
 
             if self.tpu and i < len(samples) - 1:
                 # tpu-comment: every XLA operation before marking step is
@@ -948,14 +954,13 @@ class Trainer(object):
                 "that the total number of batches is smaller than the number of "
                 "participating GPUs. Try reducing the batch size or using fewer GPUs."
             )
-
+        is_dummy = True 
         if sample is None or len(sample) == 0:
             assert (
                 self._dummy_batch is not None and len(self._dummy_batch) > 0
             ), "Invalid dummy batch: {}".format(self._dummy_batch)
             sample, _ = self._prepare_sample(self._dummy_batch, is_dummy=True)
             return sample, True
-
         if self.cuda:
             if self.pipeline_model_parallel:
                 if "target" in sample:
@@ -986,7 +991,6 @@ class Trainer(object):
 
         if self._dummy_batch == "DUMMY":
             self._dummy_batch = sample
-
         return sample, False
 
     def _set_seed(self):

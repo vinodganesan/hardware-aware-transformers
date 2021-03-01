@@ -9,7 +9,7 @@ import math
 import random
 import torch
 import pdb
-
+import configargparse
 from fairseq import checkpoint_utils, distributed_utils, options, progress_bar, tasks, utils
 from fairseq.data import iterators
 from fairseq.trainer import Trainer
@@ -101,11 +101,12 @@ def main(args, init_distributed=False):
         print(f"| Last layer FLOPs: {last_layer_macs * 2}")
         print(f"| Total FLOPs without last layer: {(macs - last_layer_macs) * 2} \n")
         exit(0)
-
+    with torch.autograd.set_detect_anomaly(True):
     # Build trainer
-    trainer = Trainer(args, task, model, criterion)
+        trainer = Trainer(args, task, model, criterion)
     print(f"| Training on {args.distributed_world_size} GPUs")
-    print(f"| Max tokens per GPU = {args.max_tokens} and max sentences per GPU = {args.max_sentences} \n")
+    # print(f"| Max tokens per GPU = {args.max_tokens} and max sentences per GPU = {args.max_sentences} \n")
+    print(f"| Max tokens per GPU = {args.max_tokens} and max sentences per GPU = {None} \n")
 
     # Measure model latency, the program will exit after profiling latency
     if args.latcpu or args.latgpu:
@@ -134,7 +135,7 @@ def main(args, init_distributed=False):
     represent_configs = utils.get_represent_configs(args)
 
     # Main training loop
-    while lr > args.min_lr and epoch_itr.epoch < max_epoch and trainer.get_num_updates() < max_update:
+    while lr > args.stop_min_lr and epoch_itr.epoch < max_epoch and trainer.get_num_updates() < max_update:
         # train for one epoch
         train(args, trainer, task, epoch_itr)
 
@@ -316,6 +317,7 @@ def distributed_main(i, args, start_rank=0):
 
 
 def cli_main():
+
     parser = options.get_training_parser()
     parser.add_argument('--train-subtransformer', action='store_true', default=False, help='whether train SuperTransformer or SubTransformer')
     parser.add_argument('--sub-configs', required=False, is_config_file=True, help='when training SubTransformer, use --configs to specify architecture and --sub-configs to specify other settings')
@@ -329,11 +331,8 @@ def cli_main():
     parser.add_argument('--latsilent', action='store_true', help='keep silent when measure latency')
 
     parser.add_argument('--validate-subtransformer', action='store_true', help='evaluate the SubTransformer on the validation set')
-
     options.add_generation_args(parser)
-
     args = options.parse_args_and_arch(parser)
-
     if args.latcpu:
         args.cpu = True
         args.fp16 = False
@@ -341,11 +340,8 @@ def cli_main():
     if args.latgpu or args.latcpu or args.profile_flops:
         args.distributed_world_size = 1
 
-    if args.pdb:
-        pdb.set_trace()
-
-    if args.distributed_init_method is None:
-        distributed_utils.infer_init_method(args)
+    #if args.distributed_init_method is None:
+     #   distributed_utils.infer_init_method(args)
 
     if args.distributed_init_method is not None:
         # distributed training
@@ -374,7 +370,7 @@ def cli_main():
 
         xmp.spawn(
             fn=distributed_main,
-            args=(main, args, kwargs),
+            args= (args,),
             nprocs=8,  # use all 8 TPU cores
         )
  
